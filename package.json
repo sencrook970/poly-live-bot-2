@@ -1,0 +1,34 @@
+{
+  "name": "polymarket-bot",
+  "version": "1.0.0",
+  "description": "Polymarket trading bot — finds arbitrage, mispricing, and AI-powered prediction opportunities",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "scan": "tsx src/scripts/scan-markets.ts",
+    "setup-keys": "tsx src/scripts/setup-keys.ts",
+    "paper": "PAPER_TRADE=true tsx src/index.ts",
+    "sell-all": "tsx src/scripts/sell-all.ts",
+    "positions": "tsx src/scripts/check-positions.ts",
+    "portfolio": "tsx src/scripts/portfolio.ts",
+    "btc-bot": "tsx src/btc-bot/index.ts",
+    "btc-bot:paper": "PAPER_TRADE=true tsx src/btc-bot/index.ts"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^5.8.0",
+    "@supabase/supabase-js": "^2.99.1",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "openai": "^4.80.0",
+    "viem": "^2.21.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
