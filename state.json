@@ -1,5 +1,5 @@
 {
-  "lastSaved": 1773674724105,
+  "lastSaved": 1773674961257,
   "trades": [
     {
       "id": "trade_1773520506568",
@@ -1870,6 +1870,47 @@
       "cost": 14.934999999999999,
       "timestamp": 1773674724105,
       "status": "filled"
+    },
+    {
+      "id": "0xa3c62dc241901a21ec64bb09e4a93f140fdb902b4ba0deceb9341e02780cdc06",
+      "marketId": "0xd32f73b7d90cd18287e48b11ff855bee97543ad87ab38ef3fffde06504e5c2bd",
+      "marketQuestion": "Will Bitcoin reach $75,000 in March?",
+      "tokenId": "33706688152544336499821558582006595413982659114846957628399804081912334837275",
+      "outcome": "No",
+      "side": "BUY",
+      "shares": 15,
+      "price": 0.15,
+      "cost": 2.25,
+      "timestamp": 1773674727000,
+      "status": "filled",
+      "txHash": "0xa3c62dc241901a21ec64bb09e4a93f140fdb902b4ba0deceb9341e02780cdc06"
+    },
+    {
+      "id": "0x299802cb1041a57a5dd708a70315faa77bb12e02fecb773a8bd815e5863382fa",
+      "marketId": "0xd32f73b7d90cd18287e48b11ff855bee97543ad87ab38ef3fffde06504e5c2bd",
+      "marketQuestion": "Will Bitcoin reach $75,000 in March?",
+      "tokenId": "33706688152544336499821558582006595413982659114846957628399804081912334837275",
+      "outcome": "No",
+      "side": "BUY",
+      "shares": 15,
+      "price": 0.15,
+      "cost": 2.25,
+      "timestamp": 1773674585000,
+      "status": "filled",
+      "txHash": "0x299802cb1041a57a5dd708a70315faa77bb12e02fecb773a8bd815e5863382fa"
+    },
+    {
+      "id": "trade_1773674961257",
+      "marketId": "1473068",
+      "marketQuestion": "Will Bitcoin reach $75,000 in March?",
+      "tokenId": "33706688152544336499821558582006595413982659114846957628399804081912334837275",
+      "outcome": "No",
+      "side": "BUY",
+      "shares": 103,
+      "price": 0.145,
+      "cost": 14.934999999999999,
+      "timestamp": 1773674961257,
+      "status": "filled"
     }
   ],
   "positions": {
@@ -1893,8 +1934,8 @@
       "totalShares": 64,
       "avgPrice": 0.158,
       "totalCost": 10.112,
-      "currentPrice": 0.161,
-      "unrealizedPnL": 0.192,
+      "currentPrice": 0.1605,
+      "unrealizedPnL": 0.16,
       "firstBoughtAt": 1773590376025
     },
     "51938013536033607392847872760095315790110510345353215258271180769721415981927": {
@@ -1906,7 +1947,7 @@
       "avgPrice": 0.86,
       "totalCost": 12.04,
       "currentPrice": 0.885,
-      "unrealizedPnL": 0.3500000000000003,
+      "unrealizedPnL": 0.35,
       "firstBoughtAt": 1773590378283
     },
     "4535122699075910617296689739209052182591729434840370870460954445200030058884": {
@@ -1929,8 +1970,8 @@
       "totalShares": 5,
       "avgPrice": 0.877,
       "totalCost": 4.385,
-      "currentPrice": 0.7945,
-      "unrealizedPnL": -0.4125,
+      "currentPrice": 0.7905,
+      "unrealizedPnL": -0.4325,
       "firstBoughtAt": 1773590484066
     },
     "68339523648891823346525943170923809752656111307494446683897840426837639357923": {
@@ -1941,8 +1982,8 @@
       "totalShares": 5,
       "avgPrice": 0.604,
       "totalCost": 3.02,
-      "currentPrice": 0.5225,
-      "unrealizedPnL": -0.4075,
+      "currentPrice": 0.525,
+      "unrealizedPnL": -0.395,
       "firstBoughtAt": 1773646780814
     },
     "62174615336627888814453166657652087168672936561990669762061326057126859157348": {
@@ -1962,11 +2003,11 @@
       "marketQuestion": "Will Bitcoin reach $75,000 in March?",
       "tokenId": "33706688152544336499821558582006595413982659114846957628399804081912334837275",
       "outcome": "No",
-      "totalShares": 199,
-      "avgPrice": 0.14982412060301506,
-      "totalCost": 29.814999999999998,
+      "totalShares": 133,
+      "avgPrice": 0.14612781954887216,
+      "totalCost": 19.435,
       "currentPrice": 0.145,
-      "unrealizedPnL": -0.9600000000000009,
+      "unrealizedPnL": -0.15000000000000013,
       "firstBoughtAt": 1773674582172
     }
   },
@@ -2010,13 +2051,13 @@
     "1538182",
     "1473068"
   ],
-  "totalInvested": 124.864497,
+  "totalInvested": 84.531997,
   "totalReturned": 40.28385585599999,
   "realizedPnL": -108.956213407784,
   "dailyStats": {
     "date": "2026-03-16",
-    "trades": 7,
-    "spent": 104.612,
+    "trades": 8,
+    "spent": 119.547,
     "pnl": 0
   },
   "_lastAddedAt": {

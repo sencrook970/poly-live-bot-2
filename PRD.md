@@ -148,6 +148,15 @@
 - [x] Max 3 positions per correlation group (2026-03-15)
 - [x] Log when correlation limit blocks a trade (2026-03-15)
 
+### 3.2.1 FUNDER_ADDRESS Investigation (TODO — HIGH PRIORITY)
+- [ ] Regular (non-neg-risk) markets fail with "not enough balance / allowance" even with $22+ cash and UNLIMITED allowances
+- [ ] Neg-risk markets (BTC multi-outcome) trade successfully
+- [ ] Root cause theory: FUNDER_ADDRESS is set to the EOA address, but ARCHITECTURE.md says "FUNDER_ADDRESS empty required for MetaMask wallets"
+- [ ] Test: set FUNDER_ADDRESS="" in .env and verify regular market trades work
+- [ ] Risk: changing FUNDER_ADDRESS might affect existing positions — test carefully
+- [ ] The CLOB SDK's `updateBalanceAllowance()` is also broken (returns "assetAddress invalid hex address") — may be related
+- [ ] Alternative: try creating fresh API keys with `npm run setup-keys` after changing FUNDER_ADDRESS
+
 ### 3.3 Smarter Stop Loss & Auto-Sell v2 (IMPLEMENTED 2026-03-16)
 - [x] Auto-sell verifies actual on-chain shares before selling (prevents "not enough balance" errors) (2026-03-16)
 - [x] Retry tracking: max 3 attempts per position, 30-min cooldown (2026-03-16)
@@ -269,30 +278,61 @@
 
 | Priority | Phase | Estimated Impact | Effort | Status |
 |----------|-------|-----------------|--------|--------|
-| 1 | Phase 0: Critical Fixes | Stops bleeding money | 1-2 hours | DONE |
-| 2 | Phase 1.1: Web Search | 2-3x better AI predictions | 3-4 hours | DONE |
-| 3 | Phase 2.1: Market Filters | Avoids bad trades entirely | 1-2 hours | DONE |
-| 4 | Phase 1.2: Smarter Model | Better reasoning quality | 1 hour | DONE |
-| 5 | **Phase 1.6: News Sniper** | **Evidence-based concentrated bets** | **3 hours** | **DONE** |
-| 6 | Phase 3.1: Position Sizing | Protects bankroll | 1-2 hours | Partial |
-| 7 | Phase 1.3: Multi-Model | Eliminates hallucination trades | 2-3 hours | TODO |
-| 8 | Phase 3.2: Correlation | Diversifies risk | 1-2 hours | DONE |
-| 9 | Phase 4.1: Server Deploy | Runs 24/7 | 2-3 hours | TODO |
-| 10 | ~~Phase 4.2: Database~~ | ~~Enables dashboard~~ | — | DONE |
-| 11 | Phase 4.3: Alerts | Know what's happening | 2-3 hours | TODO |
-| 12 | Phase 4.4: Dashboard | Visualize everything | 4-6 hours | TODO |
-| 13 | Phase 5.1: News Trading | Fastest edge capture | 4-6 hours | Partially replaced by News Sniper |
+| **1** | **Phase 3.2.1: Fix FUNDER_ADDRESS** | **Unblocks ALL regular market trades** | **30 min** | **NEXT** |
+| 2 | Phase 0: Critical Fixes | Stops bleeding money | 1-2 hours | DONE |
+| 3 | Phase 1.1: Web Search | 2-3x better AI predictions | 3-4 hours | DONE |
+| 4 | Phase 2.1: Market Filters | Avoids bad trades entirely | 1-2 hours | DONE |
+| 5 | Phase 1.2: Smarter Model | Better reasoning quality | 1 hour | DONE |
+| 6 | **Phase 1.6: News Sniper** | **Evidence-based concentrated bets** | **3 hours** | **DONE** |
+| 7 | Phase 3.1: Capital Management v2 | Daily caps, BTC limits, low-cash mode | 3 hours | DONE |
+| 8 | Phase 3.4: Portfolio Optimizer | Auto-sell contradictions on startup | 2 hours | DONE |
+| 9 | Phase 3.5: BTC Correlation | Max 2 BTC positions, 30% cap | 1 hour | DONE |
+| 10 | Phase 3.3: Auto-Sell v2 | On-chain verification, retries | 2 hours | DONE |
+| 11 | Phase 1.3: Multi-Model | Eliminates hallucination trades | 2-3 hours | TODO |
+| 12 | Phase 3.2: Correlation | Diversifies risk | 1-2 hours | DONE |
+| 13 | Phase 4.1: Server Deploy | Runs 24/7 | 2-3 hours | TODO |
+| 14 | ~~Phase 4.2: Database~~ | ~~Enables dashboard~~ | — | DONE |
+| 15 | Phase 4.3: Alerts | Know what's happening | 2-3 hours | TODO |
+| 16 | Phase 4.4: Dashboard | Visualize everything | 4-6 hours | TODO |
+| 17 | Phase 5.1: News Trading | Fastest edge capture | 4-6 hours | Partially replaced by News Sniper |
 
 ---
+
+## Known Issues (2026-03-16)
+
+| Issue | Status | Impact | Fix |
+|-------|--------|--------|-----|
+| Regular market orders fail ("not enough balance") | OPEN | Can't trade Musk tweets, Paris mayor, etc. | Investigate FUNDER_ADDRESS (see 3.2.1) |
+| CLOB SDK `updateBalanceAllowance` broken | OPEN | Can't sync CLOB internal balance | Polymarket SDK bug — no fix available |
+| Neg-risk markets work fine | OK | BTC, geopolitics, oil trades go through | No action needed |
+| state.json totalInvested/realizedPnL inflated | MINOR | Display-only, doesn't affect trading | Recalculate from on-chain on next sync |
+
+## Current Positions to Watch (2026-03-16)
+
+These CONFIRMED events should resolve YES by March 31 — potential big recovery:
+
+| Position | Shares | Entry | Status | Expected |
+|----------|--------|-------|--------|----------|
+| Kharg Island YES | 103 | $0.130 | CONFIRMED struck | Resolve YES → $103 payout |
+| US invade Iran YES | 64 | $0.158 | CONFIRMED at war | Resolve YES → $64 payout |
+| Israel Lebanon YES | 10 | $0.830 | CONFIRMED offensive | Resolve YES → $10 payout |
+| Oil $100 YES | 5 | $0.877 | CONFIRMED hit $100 | Resolve YES → $5 payout |
+| Iran ceasefire NO | 14 | $0.860 | STRONG no ceasefire | Resolve NO → $14 payout |
+| BTC $75k NO | 133 | $0.146 | ACTIVE position | Depends on BTC price |
+| Oil $120 YES | 21 | $0.443 | UNCERTAIN | Depends on oil price |
+| Oil $110 YES | 5 | $0.604 | UNCERTAIN | Depends on oil price |
+
+If Kharg + Iran + Lebanon + Oil$100 all resolve correctly: ~$182 payout on ~$30 invested = significant profit.
 
 ## Milestone Checkpoints
 
 | Milestone | Criteria | Bankroll Action |
 |-----------|----------|----------------|
-| **M1: Stop Losing** | Phase 0 + 1.1 + 2.1 complete. Bot paper-trades profitably for 3 days. | Deposit $500 |
-| **M2: Consistent Profits** | 60%+ win rate over 50 trades. Monthly return > 0%. | Increase MAX_TRADE_SIZE to $10 |
-| **M3: Production Ready** | Phase 4 complete. Bot runs 24/7 on server with alerts. | Increase to $1000 |
-| **M4: Scaling** | 3 consecutive profitable months. Win rate > 65%. | Consider $2000+ |
+| **M0: Fix Balance Bug** | Regular market trades work. FUNDER_ADDRESS issue resolved. | None |
+| **M1: Stop Losing** | March positions resolve. Net P&L improves to >-10%. | Hold at $122 |
+| **M2: Consistent Profits** | 60%+ win rate over 20 trades. Positive monthly return. | Deposit to $250 |
+| **M3: Production Ready** | Phase 4 complete. Bot runs 24/7 on server with alerts. | Deposit to $500 |
+| **M4: Scaling** | 3 consecutive profitable months. Win rate > 65%. | Consider $1000+ |
 
 ---
 
