@@ -80,19 +80,9 @@ async function syncClobBalance(): Promise<void> {
     // Some SDK versions need different params. Try multiple approaches.
     let synced = false;
 
-    // Approach 1: SDK method (works on some versions)
-    try {
-      await client.updateBalanceAllowance({ asset_type: 0 as any });
-      await client.updateBalanceAllowance({ asset_type: 1 as any });
-      synced = true;
-      log.success("[Optimizer] CLOB balance synced.");
-    } catch (e1: any) {
-      log.info(`[Optimizer] SDK balance sync failed: ${e1?.message?.substring(0, 60) || e1}`);
-    }
-
-    // Approach 2: If SDK failed, try setting allowances on-chain
-    // which forces the exchange contracts to re-check your balance
-    if (!synced) {
+    // The SDK's updateBalanceAllowance() is broken — it returns errors but doesn't throw.
+    // Skip it and go straight to on-chain re-approve which always works.
+    {
       try {
         const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
         const { polygon } = await import("viem/chains");
@@ -139,8 +129,15 @@ async function syncClobBalance(): Promise<void> {
     }
 
     if (!synced) {
-      log.warn("[Optimizer] Could not sync CLOB balance. Run manually: npx tsx src/scripts/set-allowance.ts");
+      log.warn("[Optimizer] On-chain approve failed. Run manually: npx tsx src/scripts/set-allowance.ts");
     }
+
+    // Also try the SDK method as a fallback (it may partially work for some exchange types)
+    try {
+      await client.updateBalanceAllowance({ asset_type: 0 as any });
+      await client.updateBalanceAllowance({ asset_type: 1 as any });
+    } catch {}
+
   } catch (err) {
     log.warn(`[Optimizer] Balance sync error: ${err}`);
   }
