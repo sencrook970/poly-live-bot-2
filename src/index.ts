@@ -422,7 +422,7 @@ async function executeTrade(
       shares,
       price: opp.action.price,
       totalAmount: cost,
-      strategy: opp.description?.match(/^\[(CONFIRMED|STRONG)\]/) ? "news_sniper" : opp.type === "AI_EDGE" ? "ai_prediction" : opp.type.toLowerCase(),
+      strategy: opp.description?.startsWith("[BOND]") ? "bond_mode" : opp.description?.match(/^\[(CONFIRMED|STRONG)\]/) ? "news_sniper" : opp.type === "AI_EDGE" ? "ai_prediction" : opp.type.toLowerCase(),
       orderReason,
       edgePercent: opp.edgePercent,
       confidence: opp.confidence,

@@ -15,7 +15,7 @@ Last updated: 2026-03-16
 | USDC.e cash | ~$1 |
 | Open positions | ~$105 |
 | Net P&L | ~-$16 (-13.1%) |
-| Active strategies | News Sniper + Crypto Momentum |
+| Active strategies | **News Sniper + Bond Mode** (Crypto Momentum DISABLED — 3.15% fees) |
 
 ## What's New in v2 (2026-03-16)
 

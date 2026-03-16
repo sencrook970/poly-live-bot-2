@@ -241,8 +241,10 @@ export class NewsSniperStrategy implements Strategy {
       )
         return false;
 
-      // Price must have room for edge (not already at extreme)
-      if (yesPrice <= 0.05 || yesPrice >= 0.95) return false;
+      // Price must have room for edge
+      // Bond Mode trades on markets at $0.85-0.97 (near-certain outcomes)
+      // so we allow up to $0.97 instead of $0.95
+      if (yesPrice <= 0.05 || yesPrice >= 0.97) return false;
 
       // Liquidity must be good for decent order fills
       if (m.liquidity < 5000) return false;
@@ -443,7 +445,13 @@ Liquidity: $${market.liquidity?.toFixed(0) || "0"}`;
   }
 
   // --- OPPORTUNITY CREATION ---
-  // Only creates an opportunity if the evidence warrants a trade
+  // Two modes:
+  // 1. SNIPER MODE: high edge (10-15%+), CONFIRMED or STRONG — bigger bets
+  // 2. BOND MODE: low edge (3%+), CONFIRMED only, price > $0.85 — near-certain small profits
+  //
+  // Bond Mode catches the "high-probability bonds" that Sniper Mode skips.
+  // Example: Oil already hit $100, market at $0.88, edge only 4% — Sniper skips,
+  // but Bond Mode takes it because it's CONFIRMED and near-certain to pay $1.00.
 
   private createOpportunity(
     market: Market,
@@ -452,10 +460,47 @@ Liquidity: $${market.liquidity?.toFixed(0) || "0"}`;
     const yesPrice = market.outcomePrices[0];
     const edge = analysis.probability - yesPrice;
     const edgePercent = Math.abs(edge) * 100;
+    const shouldBuyYes = edge > 0;
+    const buyPrice = shouldBuyYes ? yesPrice : market.outcomePrices[1];
 
-    // Minimum edge thresholds based on evidence level
-    // CONFIRMED needs less edge (we're more certain)
-    // STRONG needs more edge (compensation for uncertainty)
+    // --- BOND MODE ---
+    // CONFIRMED events where the winning side is priced $0.85+
+    // These are near-certain outcomes with small but reliable profit.
+    // Lower edge threshold (3%), smaller position size (lower confidence = smaller Kelly)
+    const isBondCandidate =
+      analysis.evidenceLevel === "CONFIRMED" &&
+      analysis.confidence >= 0.85 &&
+      buyPrice >= 0.70 &&                 // winning side is already expensive
+      analysis.probability >= 0.90 &&     // AI says 90%+ likely
+      edgePercent >= 3;                   // at least 3% edge
+
+    if (isBondCandidate && edgePercent < 10) {
+      // This is a Bond Mode trade — small edge but near-certain
+      // Use lower confidence multiplier so Kelly sizes smaller (5-8% of bankroll)
+      log.opportunity(
+        `[Sniper] BOND: "${market.question.substring(0, 55)}..." — ${edgePercent.toFixed(1)}% edge, CONFIRMED, price $${buyPrice.toFixed(3)}`
+      );
+
+      return {
+        type: "AI_EDGE",
+        market,
+        edgePercent,
+        expectedProfit: Math.abs(edge),
+        confidence: 0.65, // lower confidence = smaller Kelly bet (~5% of bankroll)
+        description: `[BOND] ${analysis.keyFact.substring(0, 120)} — AI: ${(analysis.probability * 100).toFixed(0)}% vs market: ${(buyPrice * 100).toFixed(0)}% (near-certain, ${edgePercent.toFixed(1)}% yield)`,
+        action: {
+          side: "BUY",
+          tokenId: shouldBuyYes
+            ? market.clobTokenIds[0]
+            : market.clobTokenIds[1],
+          price: buyPrice,
+          outcome: shouldBuyYes ? "Yes" : "No",
+        },
+      };
+    }
+
+    // --- SNIPER MODE (original) ---
+    // Higher edge thresholds for bigger bets
     const minEdge = analysis.evidenceLevel === "CONFIRMED" ? 10 : 15;
     if (edgePercent < minEdge) {
       log.info(
@@ -464,7 +509,6 @@ Liquidity: $${market.liquidity?.toFixed(0) || "0"}`;
       return null;
     }
 
-    // Confidence floor
     if (analysis.confidence < 0.65) {
       log.info(
         `[Sniper]   Confidence too low (${analysis.confidence.toFixed(2)}): "${market.question.substring(0, 50)}..."`
@@ -472,11 +516,7 @@ Liquidity: $${market.liquidity?.toFixed(0) || "0"}`;
       return null;
     }
 
-    const shouldBuyYes = edge > 0;
-
-    // Boost confidence for Kelly sizing — concentrated bets on high-conviction plays
-    // CONFIRMED trades get higher confidence = larger Kelly size
-    // STRONG trades get moderate boost
+    // Boost confidence for concentrated sizing
     const adjustedConfidence =
       analysis.evidenceLevel === "CONFIRMED"
         ? Math.max(analysis.confidence, 0.9)

@@ -148,7 +148,15 @@
 - [x] Max 3 positions per correlation group (2026-03-15)
 - [x] Log when correlation limit blocks a trade (2026-03-15)
 
-### 3.2.1 FUNDER_ADDRESS Investigation (TODO — HIGH PRIORITY)
+### 1.7 Bond Mode (IMPLEMENTED 2026-03-16)
+- [x] Added Bond Mode to News Sniper — catches CONFIRMED markets with 3-10% edge
+- [x] Only activates for CONFIRMED evidence, AI probability >= 90%, confidence >= 85%
+- [x] Smaller Kelly sizing (confidence 0.65) = ~5% of bankroll per bond trade
+- [x] Expanded filter to allow markets priced up to $0.97 (was $0.95)
+- [x] Logged as "bond_mode" strategy in DB for performance tracking
+- [x] Disabled Crypto Momentum — 3.15% dynamic taker fees destroy edge (Jan 2026 Polymarket change)
+
+### 3.2.1 FUNDER_ADDRESS Investigation (DONE 2026-03-16 — set to empty)
 - [ ] Regular (non-neg-risk) markets fail with "not enough balance / allowance" even with $22+ cash and UNLIMITED allowances
 - [ ] Neg-risk markets (BTC multi-outcome) trade successfully
 - [ ] Root cause theory: FUNDER_ADDRESS is set to the EOA address, but ARCHITECTURE.md says "FUNDER_ADDRESS empty required for MetaMask wallets"
