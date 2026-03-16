@@ -44,7 +44,7 @@ export async function getClient(): Promise<ClobClient> {
         passphrase: config.clobPassphrase,
       },
       config.signatureType,
-      config.funderAddress
+      config.funderAddress || undefined
     );
     log.success("Connected with saved API keys");
     return clientInstance;
@@ -57,7 +57,7 @@ export async function getClient(): Promise<ClobClient> {
     wallet,
     undefined,
     config.signatureType,
-    config.funderAddress
+    config.funderAddress || undefined
   );
 
   const creds = await tempClient.createOrDeriveApiKey();
@@ -72,7 +72,7 @@ export async function getClient(): Promise<ClobClient> {
     wallet,
     creds,
     config.signatureType,
-    config.funderAddress
+    config.funderAddress || undefined
   );
 
   return clientInstance;
