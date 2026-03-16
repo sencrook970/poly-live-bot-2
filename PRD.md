@@ -135,21 +135,36 @@
 - [x] Disable BTC Up/Down markets entirely — no edge from momentum on daily markets (2026-03-15)
 - [x] Crypto strategy now only trades price target markets (reach $X by date) (2026-03-15)
 
-### 3.1 Position Sizing Improvements
+### 3.1 Position Sizing & Capital Management (IMPLEMENTED 2026-03-16)
 - [ ] Scale Kelly fraction based on confidence: high conf → quarter Kelly, low conf → eighth Kelly
-- [ ] Maximum 5% of bankroll per trade (on $500 = max $25)
-- [ ] Maximum 20% of bankroll in any single market
-- [ ] Maximum 50% of bankroll deployed at any time (keep 50% as cash reserve)
+- [x] Max trade size configurable ($15 currently)
+- [x] Maximum 75% of total assets deployed (keep 25% cash reserve) (2026-03-16)
+- [x] Maximum 60% of total assets deployed per day (prevents overtrading) (2026-03-16)
+- [x] Maximum 5 new markets per day (2026-03-16)
+- [x] Low-cash mode: below $5, only manage existing positions (2026-03-16)
 
 ### 3.2 Correlation Awareness
 - [x] Group related markets by topic (iran, oil, us_politics) (2026-03-15)
 - [x] Max 3 positions per correlation group (2026-03-15)
 - [x] Log when correlation limit blocks a trade (2026-03-15)
 
-### 3.3 Smarter Stop Loss
-- [ ] Instead of flat 50% stop loss, use time-based stops
-- [ ] If position is down >20% after 24 hours AND edge disappeared, sell
-- [ ] If market is resolving within 2 hours and position is profitable, take profit regardless of threshold
+### 3.3 Smarter Stop Loss & Auto-Sell v2 (IMPLEMENTED 2026-03-16)
+- [x] Auto-sell verifies actual on-chain shares before selling (prevents "not enough balance" errors) (2026-03-16)
+- [x] Retry tracking: max 3 attempts per position, 30-min cooldown (2026-03-16)
+- [x] Marks positions as "manual required" after too many failures (2026-03-16)
+- [ ] Time-based stops: down >20% after 24h AND edge disappeared → sell
+- [ ] Near-expiry take profit: resolving in <2h and profitable → sell
+
+### 3.4 Portfolio Optimizer (IMPLEMENTED 2026-03-16)
+- [x] Runs on startup to clean up contradictory positions (2026-03-16)
+- [x] Detects BTC contradictions using live CoinGecko price (2026-03-16)
+- [x] Sells near-zero price positions (certain losers) (2026-03-16)
+- [x] Sells deeply underwater positions with no recovery path (2026-03-16)
+
+### 3.5 BTC Correlation Limits (IMPLEMENTED 2026-03-16)
+- [x] Max 2 simultaneous BTC positions (2026-03-16)
+- [x] Max 30% of total assets in BTC exposure (2026-03-16)
+- [x] Risk manager blocks new BTC trades when limits hit (2026-03-16)
 
 ### 3.4 Performance Tracking
 - [ ] Track win rate per strategy (AI, crypto, arbitrage)

@@ -49,6 +49,32 @@ export const config = {
     btc5min: process.env.STRATEGY_BTC_5MIN !== "false",
     newsSniper: process.env.STRATEGY_NEWS_SNIPER !== "false",
   },
+
+  // --- Capital Management ---
+  // Stop opening NEW positions when cash drops below this (only manage existing)
+  lowCashThreshold: parseFloat(process.env.LOW_CASH_THRESHOLD || "5"),
+  // Max % of total assets (cash + positions) that can be deployed in positions
+  maxDeployedPercent: parseFloat(process.env.MAX_DEPLOYED_PERCENT || "75") / 100,
+  // Max new capital deployed per day as % of total assets
+  maxDailyDeployPercent: parseFloat(process.env.MAX_DAILY_DEPLOY_PERCENT || "60") / 100,
+  // Max distinct NEW markets per day (prevents overtrading)
+  maxNewMarketsPerDay: parseInt(process.env.MAX_NEW_MARKETS_PER_DAY || "5"),
+
+  // --- Correlation Limits ---
+  // Max simultaneous BTC-related positions
+  maxBtcPositions: parseInt(process.env.MAX_BTC_POSITIONS || "2"),
+  // Max % of total assets in BTC positions
+  maxBtcExposurePercent: parseFloat(process.env.MAX_BTC_EXPOSURE_PERCENT || "30") / 100,
+
+  // --- Auto-Sell Safety ---
+  // Max sell retry attempts before marking as "manual required"
+  maxSellRetries: parseInt(process.env.MAX_SELL_RETRIES || "3"),
+  // Cooldown between sell attempts on same position (minutes)
+  sellCooldownMinutes: parseInt(process.env.SELL_COOLDOWN_MINUTES || "30"),
+
+  // --- Portfolio Optimizer ---
+  // Auto-sell contradictory and clearly losing positions on startup
+  autoCleanup: process.env.AUTO_CLEANUP !== "false",
 };
 
 // Quick check that essentials are set

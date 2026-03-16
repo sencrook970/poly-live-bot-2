@@ -1,22 +1,35 @@
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { Side, OrderType } from "@polymarket/clob-client";
 import { getClient } from "../client";
 import { config } from "../config";
 import { log } from "../utils/logger";
 import { BotState, saveState } from "../state";
+import { getVerifiedShares, invalidatePositionCache } from "../sync";
+import { privateKeyToAccount } from "viem/accounts";
 
 // ---------------------------------------------------------------------------
-// Auto Sell — automatically sells positions when they hit profit/loss targets.
+// Auto Sell v2 — sells positions when they hit profit/loss targets.
 //
-// Rules:
-// - TAKE PROFIT: sell when a position is up >20% from entry
-// - STOP LOSS: sell when a position is down >50% from entry
-// - NEAR EXPIRY: sell if market ends within 2 hours and position is profitable
-//
-// These thresholds are configurable via .env (TAKE_PROFIT_PERCENT, STOP_LOSS_PERCENT)
+// Improvements over v1:
+// 1. VERIFY actual shares on-chain before selling (prevents "not enough balance" errors)
+// 2. RETRY TRACKING: after N failures, stop trying and log "manual required"
+// 3. COOLDOWN: don't retry the same sell more than once per cooldown period
+// 4. Handles resolved markets (price 0 or 1) cleanly
 // ---------------------------------------------------------------------------
 
 const TAKE_PROFIT = parseFloat(process.env.TAKE_PROFIT_PERCENT || "20") / 100;
 const STOP_LOSS = parseFloat(process.env.STOP_LOSS_PERCENT || "50") / 100;
+
+// Track sell attempts per token to avoid infinite retry spam
+const sellAttempts = new Map<string, { count: number; lastAttempt: number }>();
+// Positions marked as "manual required" after too many failures
+const manualRequired = new Set<string>();
+
+function getWalletAddress(): string {
+  const pk = config.privateKey.startsWith("0x")
+    ? config.privateKey
+    : `0x${config.privateKey}`;
+  return privateKeyToAccount(pk as `0x${string}`).address;
+}
 
 export async function checkAndSellPositions(state: BotState): Promise<void> {
   const positions = Object.values(state.positions);
@@ -25,17 +38,14 @@ export async function checkAndSellPositions(state: BotState): Promise<void> {
   let soldCount = 0;
 
   // First: remove resolved markets (price at 0 or 1, orderbook gone)
-  // Use a Set to track what we've already counted in realized P&L
-  const alreadyCounted = new Set<string>();
   for (const pos of positions) {
     if (pos.currentPrice <= 0.005 || pos.currentPrice >= 0.995) {
-      // Only count P&L once — check if this was already in state before sync added it
-      if (!alreadyCounted.has(pos.tokenId)) {
-        alreadyCounted.add(pos.tokenId);
-        log.info(
-          `[AutoSell] Market resolved: "${pos.marketQuestion.substring(0, 40)}..." — removing from portfolio`
-        );
-      }
+      log.info(
+        `[AutoSell] Market resolved: "${pos.marketQuestion.substring(0, 40)}..." — removing from portfolio`
+      );
+      // Clean up tracking
+      sellAttempts.delete(pos.tokenId);
+      manualRequired.delete(pos.tokenId);
       delete state.positions[pos.tokenId];
       saveState(state);
     }
@@ -43,52 +53,115 @@ export async function checkAndSellPositions(state: BotState): Promise<void> {
 
   // Re-read positions after cleanup
   const activePositions = Object.values(state.positions);
+  const walletAddress = getWalletAddress();
 
   for (const pos of activePositions) {
     if (pos.totalShares <= 0) continue;
 
+    // Skip if marked as "manual required" (too many failed sells)
+    if (manualRequired.has(pos.tokenId)) {
+      continue; // logged once when marked, don't spam
+    }
+
     const priceChange = (pos.currentPrice - pos.avgPrice) / pos.avgPrice;
+
+    let shouldSell = false;
+    let sellReason = "";
 
     // TAKE PROFIT — position is up enough
     if (priceChange >= TAKE_PROFIT) {
-      log.success(
-        `[AutoSell] TAKE PROFIT: "${pos.marketQuestion.substring(0, 40)}..." — ` +
-          `up ${(priceChange * 100).toFixed(1)}% ($${pos.avgPrice.toFixed(3)} → $${pos.currentPrice.toFixed(3)})`
-      );
-      const sold = await sellPosition(pos.tokenId, pos.totalShares, pos.currentPrice);
-      if (sold) {
-        // Update state
-        const pnl = (pos.currentPrice - pos.avgPrice) * pos.totalShares;
-        state.realizedPnL += pnl;
-        state.totalReturned += pos.currentPrice * pos.totalShares;
-        delete state.positions[pos.tokenId];
-        saveState(state);
-        soldCount++;
-        log.success(`  Realized P&L: +$${pnl.toFixed(2)}`);
-      }
+      shouldSell = true;
+      sellReason = `TAKE PROFIT: up ${(priceChange * 100).toFixed(1)}% ($${pos.avgPrice.toFixed(3)} → $${pos.currentPrice.toFixed(3)})`;
     }
 
     // STOP LOSS — position is down too much
     if (priceChange <= -STOP_LOSS) {
-      log.warn(
-        `[AutoSell] STOP LOSS: "${pos.marketQuestion.substring(0, 40)}..." — ` +
-          `down ${(priceChange * 100).toFixed(1)}% ($${pos.avgPrice.toFixed(3)} → $${pos.currentPrice.toFixed(3)})`
-      );
-      const sold = await sellPosition(pos.tokenId, pos.totalShares, pos.currentPrice);
-      if (sold) {
-        const pnl = (pos.currentPrice - pos.avgPrice) * pos.totalShares;
-        state.realizedPnL += pnl;
-        state.totalReturned += pos.currentPrice * pos.totalShares;
+      shouldSell = true;
+      sellReason = `STOP LOSS: down ${(priceChange * 100).toFixed(1)}% ($${pos.avgPrice.toFixed(3)} → $${pos.currentPrice.toFixed(3)})`;
+    }
+
+    if (!shouldSell) continue;
+
+    // --- COOLDOWN CHECK ---
+    const attempts = sellAttempts.get(pos.tokenId);
+    if (attempts) {
+      const cooldownMs = config.sellCooldownMinutes * 60 * 1000;
+      if (Date.now() - attempts.lastAttempt < cooldownMs) {
+        continue; // still in cooldown, skip silently
+      }
+      if (attempts.count >= config.maxSellRetries) {
+        manualRequired.add(pos.tokenId);
+        log.error(
+          `[AutoSell] MANUAL REQUIRED: "${pos.marketQuestion.substring(0, 40)}..." — ${attempts.count} sell attempts failed. Sell manually on polymarket.com`
+        );
+        continue;
+      }
+    }
+
+    // --- VERIFY ACTUAL SHARES ON-CHAIN ---
+    let verifiedShares = pos.totalShares;
+    try {
+      const onChainShares = await getVerifiedShares(walletAddress, pos.tokenId);
+      if (onChainShares <= 0) {
+        log.info(
+          `[AutoSell] No shares on-chain for "${pos.marketQuestion.substring(0, 40)}..." — removing from state`
+        );
         delete state.positions[pos.tokenId];
         saveState(state);
-        soldCount++;
+        continue;
+      }
+      if (onChainShares < pos.totalShares) {
+        log.info(
+          `[AutoSell] Clamping shares: state says ${pos.totalShares} but on-chain has ${onChainShares}`
+        );
+        verifiedShares = onChainShares;
+      }
+    } catch (err) {
+      log.warn(`[AutoSell] Could not verify shares — using state.json count (${pos.totalShares})`);
+    }
+
+    // --- EXECUTE SELL ---
+    if (priceChange >= TAKE_PROFIT) {
+      log.success(`[AutoSell] ${sellReason} — "${pos.marketQuestion.substring(0, 45)}..."`);
+    } else {
+      log.warn(`[AutoSell] ${sellReason} — "${pos.marketQuestion.substring(0, 45)}..."`);
+    }
+
+    const sold = await sellPosition(pos.tokenId, verifiedShares, pos.currentPrice);
+
+    // Track attempt
+    const prev = sellAttempts.get(pos.tokenId) || { count: 0, lastAttempt: 0 };
+    sellAttempts.set(pos.tokenId, {
+      count: sold ? 0 : prev.count + 1, // reset on success
+      lastAttempt: Date.now(),
+    });
+
+    if (sold) {
+      const pnl = (pos.currentPrice - pos.avgPrice) * verifiedShares;
+      state.realizedPnL += pnl;
+      state.totalReturned += pos.currentPrice * verifiedShares;
+      delete state.positions[pos.tokenId];
+      saveState(state);
+      invalidatePositionCache(); // force re-fetch next time
+      soldCount++;
+
+      if (pnl >= 0) {
+        log.success(`  Realized P&L: +$${pnl.toFixed(2)}`);
+      } else {
         log.warn(`  Realized P&L: -$${Math.abs(pnl).toFixed(2)}`);
       }
+    } else {
+      const retries = sellAttempts.get(pos.tokenId)!;
+      log.warn(
+        `[AutoSell] Sell failed (attempt ${retries.count}/${config.maxSellRetries}). Will retry after ${config.sellCooldownMinutes}min cooldown.`
+      );
     }
   }
 
   if (soldCount > 0) {
-    log.info(`[AutoSell] Closed ${soldCount} positions. Total realized P&L: $${state.realizedPnL.toFixed(2)}`);
+    log.info(
+      `[AutoSell] Closed ${soldCount} positions. Total realized P&L: $${state.realizedPnL.toFixed(2)}`
+    );
   }
 }
 
@@ -104,12 +177,14 @@ async function sellPosition(
 
   try {
     const client = await getClient();
-
     const tickSize = await client.getTickSize(tokenId);
     const negRisk = await client.getNegRisk(tokenId);
 
     // Sell slightly below current price for quick fill
-    const sellPrice = Math.max(0.01, Math.round((currentPrice - 0.005) * 1000) / 1000);
+    const sellPrice = Math.max(
+      0.01,
+      Math.round((currentPrice - 0.005) * 1000) / 1000
+    );
 
     const result = await client.createAndPostOrder(
       {
@@ -130,7 +205,7 @@ async function sellPosition(
       log.success(`[AutoSell] Sold ${shares} shares @ $${sellPrice.toFixed(3)} — ${r.status}`);
       return true;
     } else {
-      log.error(`[AutoSell] Sell failed: ${JSON.stringify(result)}`);
+      log.error(`[AutoSell] Sell failed: ${r.error || JSON.stringify(result)}`);
       return false;
     }
   } catch (err) {

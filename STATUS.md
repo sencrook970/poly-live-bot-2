@@ -1,84 +1,82 @@
 # Polymarket Bot — Current Status
 
-Last updated: 2026-03-15 (News Sniper strategy built)
+Last updated: 2026-03-16
 
 ## Quick Start (for new Claude session)
 
-> "I have a Polymarket trading bot in `/polymarket-bot/`. Read `STATUS.md`, `PRD.md`, and `ARCHITECTURE.md` to understand the full context. The bot runs the News Sniper strategy — event-driven concentrated bets on markets where outcomes are already known from news. Run with `npx tsx src/index.ts`."
+> "I have a Polymarket trading bot in `/polymarket-bot/`. Read `STATUS.md`, `PRD.md`, and `ARCHITECTURE.md`. The bot runs News Sniper + Crypto Momentum with capital management v2 (daily caps, BTC limits, low-cash mode, portfolio optimizer). Run with `npx tsx src/index.ts`."
 
-## Current State: NEWS SNIPER STRATEGY LIVE
-
-Fresh start with new strategy. No active positions.
+## Current State: v2 WITH CAPITAL MANAGEMENT
 
 | Metric | Value |
 |--------|-------|
-| USDC.e cash | ~$60 |
-| Positions | 0 |
-| Total deposited | ~$60 |
-| Active strategy | **News Sniper** (event-driven, evidence-based) |
-| Old AI Predictor | Disabled (replaced by News Sniper) |
-| Crypto Momentum | Still enabled (price target markets) |
+| Total deposited | ~$122 |
+| Total assets | ~$106 (cash + positions) |
+| USDC.e cash | ~$1 |
+| Open positions | ~$105 |
+| Net P&L | ~-$16 (-13.1%) |
+| Active strategies | News Sniper + Crypto Momentum |
 
-## What Changed (News Sniper)
+## What's New in v2 (2026-03-16)
 
-### Old strategy (AI Predictor) — WHY IT LOST MONEY
-- Spread $1-2 across 10+ random markets per session
-- AI guessed probabilities from question text + search
-- No distinction between "confirmed fact" and "speculation"
-- Sports bets, wrong-direction crypto, too many tiny bets
+### Problem: Bot overtraded and burned through all cash
+- 43 trades / $209 spent in one day on $120 bankroll
+- Cash dropped to $1.06 — can't open new trades or execute auto-sells
+- Contradictory BTC positions (>$76k YES + >$70k NO)
+- Auto-sell failed with "not enough balance" errors
 
-### New strategy (News Sniper) — HOW IT MAKES MONEY
-- **Evidence classification**: every market analyzed as CONFIRMED / STRONG / WEAK / UNKNOWN
-- **Only trades on facts**: CONFIRMED = event already happened, STRONG = multiple sources agree
-- **Concentrated bets**: 2-3 trades at $5-15 each instead of 10 trades at $1-2 each
-- **Smart prioritization**: geopolitics, economics, policy markets scored highest
-- **Skip cache**: markets classified as WEAK/UNKNOWN are skipped for 4 hours (saves Tavily credits)
-- **Sanity checks**: LLM can't claim CONFIRMED without citing a specific fact
+### Fix: 6 major improvements
 
-### Example trades the News Sniper would make:
-- "Will X tariff be imposed?" → Search finds official announcement → CONFIRMED → bet $12
-- "Will candidate X win primary?" → 3 polls show 65%+ → STRONG → bet $5
-- "Will stock Y hit $Z?" → No specific data → WEAK → SKIP (cached 4h)
+1. **Portfolio Optimizer** (`portfolio-optimizer.ts`) — NEW
+   - Runs on startup, auto-sells contradictory/losing positions
+   - Detects BTC contradictions using live CoinGecko price
+   - Sells positions with near-zero price (certain losers)
+   - Frees up capital trapped in bad positions
 
-## What We Built (total, 3 days of work)
+2. **Daily Capital Cap** — NEW
+   - Max 60% of total assets deployed per day (prevents burning all cash)
+   - Max 5 new markets per day (prevents overtrading)
+   - Resets at midnight
 
-### News Sniper Strategy (`src/strategies/news-sniper.ts`) — NEW
-- Evidence classification (CONFIRMED/STRONG/WEAK/UNKNOWN)
-- Smart market prioritization by category
-- Concentrated Kelly sizing with confidence boosts
-- 4-hour skip cache for WEAK/UNKNOWN markets
-- Extended sports filter (more patterns)
-- All analyses logged to Supabase
+3. **Low-Cash Mode** — NEW
+   - Below $5 cash: stops opening new positions
+   - Only manages existing positions (auto-sell still works)
+   - Prevents the bot from getting stuck with $0 cash
 
-### General Bot Infrastructure (unchanged, still works)
-- Supabase database (12 tables, full trade history)
-- On-chain sync via Polymarket Data API
-- Auto-sell (take profit 20% / stop loss 50%)
-- Position conflict detection (don't bet both sides)
-- Correlation limits (max 3 per topic group)
-- Search result caching (saves Tavily credits)
-- Balance auto-detection
-- Kelly Criterion position sizing (quarter-Kelly)
+4. **BTC Correlation Limits** — NEW
+   - Max 2 simultaneous BTC positions
+   - Max 30% of assets in BTC exposure
+   - Prevents contradictory BTC bets
 
-### Crypto Momentum (still enabled)
-- BTC/ETH/SOL price target markets only
-- Uses CoinGecko for real prices vs market targets
+5. **Auto-Sell with Verification** — IMPROVED
+   - Verifies actual on-chain shares before selling (no more "not enough balance")
+   - Retry tracking: max 3 attempts per position
+   - 30-minute cooldown between retries
+   - Marks as "manual required" after too many failures
 
-### Scripts
-- `npm run portfolio` — check total value anytime
-- `npm run sell-all` — emergency close everything
-- `npm run scan` — read-only market scan
+6. **Max Deployed Capital** — NEW
+   - Max 75% of total assets can be in positions
+   - Always keeps 25% cash reserve
+   - Prevents the $1.06 cash situation
 
-## Settings (current .env)
+## Settings (current .env + new defaults)
 
-| Setting | Value | Why |
-|---------|-------|-----|
-| MAX_TRADE_SIZE | $15 | 25% of $60 bankroll for concentrated bets |
-| MIN_EDGE_PERCENT | 10% | Floor for all strategies |
-| SCAN_INTERVAL | 90s | Balance between speed and Tavily credit usage |
-| TAKE_PROFIT | 20% | Auto-sell when up 20% |
-| STOP_LOSS | 50% | Auto-sell when down 50% |
-| PAPER_TRADE | false | Live trading |
+| Setting | Value | Source |
+|---------|-------|--------|
+| MAX_TRADE_SIZE | $15 | .env |
+| MIN_EDGE_PERCENT | 10% | .env |
+| SCAN_INTERVAL | 90s | .env |
+| LOW_CASH_THRESHOLD | $5 | default |
+| MAX_DEPLOYED_PERCENT | 75% | default |
+| MAX_DAILY_DEPLOY_PERCENT | 60% | default |
+| MAX_NEW_MARKETS_PER_DAY | 5 | default |
+| MAX_BTC_POSITIONS | 2 | default |
+| MAX_BTC_EXPOSURE_PERCENT | 30% | default |
+| MAX_SELL_RETRIES | 3 | default |
+| SELL_COOLDOWN_MINUTES | 30 | default |
+| AUTO_CLEANUP | true | default |
+| TAKE_PROFIT | 20% | .env |
+| STOP_LOSS | 50% | .env |
 
 ## Wallet Setup (DON'T CHANGE)
 
@@ -86,50 +84,27 @@ Fresh start with new strategy. No active positions.
 |------|-------|
 | EOA | `0xBBF2DFc8ACC5021292dD039abC80E8429C9A3B5F` |
 | Signature type | `0` (EOA) |
-| Funder address | EMPTY |
+| Funder address | `0xBBF2DFc8ACC5021292dD039abC80E8429C9A3B5F` |
 | USDC type | USDC.e on Polygon |
-| Token approvals | Done |
-
-## Lessons from Previous Session (applied to News Sniper)
-
-1. **Only trade on HARD EVIDENCE** → News Sniper classifies evidence before trading
-2. **Skip all sports/esports** → Extended filter with more patterns
-3. **Don't bet both sides** → Conflict detection still active
-4. **Concentrate capital** → $5-15 per trade instead of $1-2
-5. **Don't bet crypto up/down** → Filtered out, only price targets remain
-6. **Need cited facts, not speculation** → LLM must cite specific facts or gets downgraded to WEAK
 
 ## Deposit Recommendation
 
-**DO NOT deposit $500 yet.** Run News Sniper with $60 for 3-5 days first. Criteria to deposit more:
-- [ ] 5+ trades completed
-- [ ] Positive P&L (any amount)
-- [ ] Win rate > 50%
-- [ ] No catastrophic single-trade losses
-- [ ] CONFIRMED trades actually resolve correctly
-
-## APIs & Keys in .env
-
-| Key | Purpose |
-|-----|---------|
-| PRIVATE_KEY | MetaMask wallet (EOA) |
-| CLOB_API_KEY/SECRET/PASSPHRASE | Polymarket trading API |
-| OPENAI_API_KEY + BASE_URL | OpenRouter for AI (Gemini 2.5 Flash) |
-| TAVILY_API_KEY | Web search (1000 free credits/month) |
-| SUPABASE_URL + SERVICE_KEY | Database |
+**DO NOT deposit more yet.** Wait for v2 to prove itself:
+- [ ] Portfolio optimizer sells bad positions and frees cash
+- [ ] Bot makes 5+ profitable trades with new capital limits
+- [ ] Daily capital cap prevents overtrading
+- [ ] Auto-sell successfully takes profits
 
 ## Files That Matter
 
 | File | Purpose |
 |------|---------|
-| `PRD.md` | Full improvement plan with checkboxes |
+| `STATUS.md` | This file |
+| `PRD.md` | Full improvement plan |
 | `ARCHITECTURE.md` | How every file works |
-| `STATUS.md` | This file — current state |
-| `state.json` | Persistent bot state |
-| `.env` | All secrets + settings |
-| `src/index.ts` | Main loop |
-| `src/strategies/news-sniper.ts` | **News Sniper strategy (PRIMARY)** |
-| `src/strategies/crypto-momentum.ts` | Crypto price target strategy |
-| `src/db.ts` | Supabase database layer |
-| `src/search.ts` | Tavily web search with caching |
-| `src/sync.ts` | On-chain position sync |
+| `src/index.ts` | Main loop (v2 with capital management) |
+| `src/strategies/news-sniper.ts` | Primary strategy |
+| `src/portfolio-optimizer.ts` | Auto-sell bad positions on startup |
+| `src/risk/risk-manager.ts` | v2 with daily caps, BTC limits |
+| `src/execution/auto-sell.ts` | v2 with share verification, retries |
+| `src/config.ts` | All settings including new capital management |

@@ -19,28 +19,31 @@ import {
   hasConflictingPosition,
   countPositionsInCategory,
   printStateSummary,
+  getPortfolioValue,
   BotState,
 } from "./state";
 import { getUsdcBalance } from "./balance";
 import { syncState } from "./sync";
 import { checkAndSellPositions } from "./execution/auto-sell";
+import { optimizePortfolio } from "./portfolio-optimizer";
 import { privateKeyToAccount } from "viem/accounts";
 import { ensureWallet, recordOrder, recordScan, takeDailySnapshot, getDb } from "./db";
 
 // ---------------------------------------------------------------------------
-// POLYMARKET BOT — Main Entry Point
+// POLYMARKET BOT v2 — Main Entry Point
 //
-// Features:
-// - Persistent state (saved to state.json, survives restarts)
-// - Auto-detects new deposits (checks on-chain balance every scan)
-// - Smart deduplication (won't re-buy markets you already have)
-// - Logs everything to state.json for review
+// v2 improvements:
+// - Portfolio optimizer on startup (sells contradictory/losing positions)
+// - Risk manager with daily capital caps, BTC correlation limits
+// - Low-cash mode (stops new trades below threshold, only manages existing)
+// - Auto-sell with on-chain share verification and retry logic
+// - Max new markets per day to prevent overtrading
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   console.log("\n");
   console.log("╔══════════════════════════════════════════╗");
-  console.log("║        POLYMARKET TRADING BOT            ║");
+  console.log("║      POLYMARKET TRADING BOT v2           ║");
   console.log("╚══════════════════════════════════════════╝");
   console.log("");
 
@@ -52,20 +55,26 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Show mode
+  // Show mode and capital management settings
   if (config.paperTrade) {
     log.paper("PAPER TRADE MODE — no real money will be used.");
   } else {
     log.warn("LIVE TRADING MODE — real USDC will be used!");
-    log.info(`  Daily loss limit: $${config.dailyLossLimit}`);
-    log.info(`  Max trade size:   $${config.maxTradeSize}`);
-    log.info(`  Min edge:         ${config.minEdgePercent}%`);
+    log.info(`  Max trade size:      $${config.maxTradeSize}`);
+    log.info(`  Min edge:            ${config.minEdgePercent}%`);
+    log.info(`  Daily loss limit:    $${config.dailyLossLimit}`);
+    log.info(`  Low cash threshold:  $${config.lowCashThreshold}`);
+    log.info(`  Max deployed:        ${(config.maxDeployedPercent * 100).toFixed(0)}% of assets`);
+    log.info(`  Max daily deploy:    ${(config.maxDailyDeployPercent * 100).toFixed(0)}% of assets`);
+    log.info(`  Max new markets/day: ${config.maxNewMarketsPerDay}`);
+    log.info(`  Max BTC positions:   ${config.maxBtcPositions}`);
+    log.info(`  Max BTC exposure:    ${(config.maxBtcExposurePercent * 100).toFixed(0)}% of assets`);
   }
 
   // Load persistent state
   const state = loadState();
 
-  // Sync with on-chain positions (source of truth) — non-blocking
+  // Derive wallet address
   const pk = config.privateKey.startsWith("0x")
     ? config.privateKey
     : `0x${config.privateKey}`;
@@ -80,10 +89,18 @@ async function main(): Promise<void> {
     if (dbWalletId) log.success(`[DB] Wallet registered: ${dbWalletId}`);
   }
 
+  // Sync with on-chain positions (source of truth)
   try {
     await syncState(state, walletAddress);
   } catch (err) {
     log.warn(`[Sync] Skipped — API unreachable. Using local state.json (${Object.keys(state.positions).length} positions).`);
+  }
+
+  // --- PORTFOLIO OPTIMIZER: sell bad positions on startup ---
+  try {
+    await optimizePortfolio(state, walletAddress);
+  } catch (err) {
+    log.warn(`[Optimizer] Failed: ${err}`);
   }
 
   // Initialize components
@@ -129,7 +146,7 @@ async function main(): Promise<void> {
 
   log.info(`Scan interval: every ${config.scanIntervalSeconds} seconds`);
   log.info(
-    `Loaded ${state.trades.length} previous trades, ${Object.keys(state.positions).length} positions, ${state.tradedMarketIds.length} traded markets`
+    `Loaded ${state.trades.length} previous trades, ${Object.keys(state.positions).length} positions`
   );
   console.log("\n");
 
@@ -148,9 +165,28 @@ async function main(): Promise<void> {
         orderManager.setBankroll(balance);
       }
 
-      // If balance is too low, skip trading but still scan
-      if (balance >= 0 && balance < 1.0) {
-        log.warn("Balance below $1.00 — scanning but not trading. Deposit more USDC.e to trade.");
+      // Calculate total assets for risk management
+      const portfolioValue = getPortfolioValue(state);
+      const totalAssets = (balance >= 0 ? balance : 0) + portfolioValue;
+
+      // Update risk manager context BEFORE any trading decisions
+      riskManager.setContext({
+        cashBalance: balance >= 0 ? balance : 0,
+        positions: state.positions,
+        totalAssets,
+      });
+
+      // Log capital management status
+      const deployedPct = portfolioValue / Math.max(1, totalAssets) * 100;
+      log.info(
+        `[Capital] Cash: $${balance >= 0 ? balance.toFixed(2) : "?"} | Positions: $${portfolioValue.toFixed(2)} | Total: $${totalAssets.toFixed(2)} | Deployed: ${deployedPct.toFixed(0)}%`
+      );
+
+      // LOW CASH warning
+      if (balance >= 0 && balance < config.lowCashThreshold) {
+        log.warn(
+          `[Capital] LOW CASH MODE: $${balance.toFixed(2)} < $${config.lowCashThreshold} — only managing existing positions, no new trades.`
+        );
       }
 
       // Collect opportunities from all strategies
@@ -187,14 +223,13 @@ async function main(): Promise<void> {
       } else {
         const ranked = rankOpportunities(allOpportunities);
 
-        // Filter opportunities with conflict detection and correlation limits
+        // Filter with conflict detection and correlation limits
         const newOpps: typeof ranked = [];
         const addOpps: typeof ranked = [];
         let skipped = 0;
         let conflicts = 0;
         let correlationBlocked = 0;
 
-        // Correlation buckets — max 2 positions per topic
         const correlationGroups: Record<string, string[]> = {
           iran: ["iran", "kharg", "strait of hormuz", "tehran"],
           oil: ["crude oil", "oil price", "brent"],
@@ -204,7 +239,6 @@ async function main(): Promise<void> {
         for (const opp of ranked) {
           const isExisting = hasPosition(state, opp.market.id);
 
-          // Check for CONFLICTING position (holding opposite side)
           const conflict = hasConflictingPosition(
             state,
             opp.market.question,
@@ -212,13 +246,12 @@ async function main(): Promise<void> {
           );
           if (conflict.conflict) {
             log.warn(
-              `[Filter] CONFLICT: Want to buy ${opp.action.outcome} but already holding ${conflict.existingOutcome} (${conflict.existingShares} shares) on "${opp.market.question.substring(0, 40)}..."`
+              `[Filter] CONFLICT: Want ${opp.action.outcome} but holding ${conflict.existingOutcome} on "${opp.market.question.substring(0, 40)}..."`
             );
             conflicts++;
             continue;
           }
 
-          // Check correlation limits — max 2 positions per topic group
           let correlationHit = false;
           for (const [group, keywords] of Object.entries(correlationGroups)) {
             const q = opp.market.question.toLowerCase();
@@ -226,7 +259,7 @@ async function main(): Promise<void> {
               const count = countPositionsInCategory(state, keywords);
               if (count >= 3) {
                 log.info(
-                  `[Filter] CORRELATION: Already ${count} positions in "${group}" group. Skipping "${opp.market.question.substring(0, 40)}..."`
+                  `[Filter] CORRELATION: ${count} in "${group}". Skip "${opp.market.question.substring(0, 40)}..."`
                 );
                 correlationHit = true;
                 correlationBlocked++;
@@ -246,63 +279,56 @@ async function main(): Promise<void> {
         }
 
         log.info(
-          `Found ${ranked.length} opportunities (${newOpps.length} new, ${addOpps.length} add-to-existing, ${skipped} skip, ${conflicts} conflicts, ${correlationBlocked} correlation-blocked).`
+          `Found ${ranked.length} opps (${newOpps.length} new, ${addOpps.length} add, ${skipped} skip, ${conflicts} conflict, ${correlationBlocked} corr-blocked).`
         );
 
-        // Skip if balance too low
-        if (balance >= 0 && balance < 1.0) {
-          log.warn("Skipping trades — balance too low.");
-        } else {
-          // Execute new opportunities first
-          let executed = 0;
-          for (const opp of newOpps) {
-            if (executed >= 3) break;
-            const success = await executeTrade(opp, state, orderManager, dbWalletId);
-            if (success) executed++;
-          }
+        // Execute trades (risk manager will enforce all capital limits)
+        let executed = 0;
+        for (const opp of newOpps) {
+          if (executed >= 3) break;
+          const success = await executeTrade(opp, state, orderManager, riskManager, dbWalletId);
+          if (success) executed++;
+        }
 
-          // Then add to existing (max 1 per scan, with 2-hour cooldown)
-          // This prevents the bot from buying the same market every scan
-          if (executed < 3 && addOpps.length > 0) {
-            const opp = addOpps[0];
-            const lastAdded = (state as any)._lastAddedAt?.[opp.market.id] || 0;
-            const cooldownMs = 2 * 60 * 60 * 1000; // 2 hours
+        // Add to existing (max 1 per scan, with cooldown)
+        if (executed < 3 && addOpps.length > 0) {
+          const opp = addOpps[0];
+          const lastAdded = (state as any)._lastAddedAt?.[opp.market.id] || 0;
+          const cooldownMs = 2 * 60 * 60 * 1000;
 
-            if (Date.now() - lastAdded < cooldownMs) {
-              log.info(
-                `[Cooldown] Skipping add-to "${opp.market.question.substring(0, 40)}..." — last added ${Math.round((Date.now() - lastAdded) / 60000)}m ago (need 120m)`
-              );
-            } else {
-              log.info(
-                `Adding to existing position: "${opp.market.question.substring(0, 50)}..." (${opp.edgePercent.toFixed(1)}% edge)`
-              );
-              const success = await executeTrade(opp, state, orderManager, dbWalletId, "add_to_position");
-              if (success) {
-                executed++;
-                // Record cooldown timestamp
-                if (!(state as any)._lastAddedAt) (state as any)._lastAddedAt = {};
-                (state as any)._lastAddedAt[opp.market.id] = Date.now();
-              }
+          if (Date.now() - lastAdded < cooldownMs) {
+            log.info(
+              `[Cooldown] Skip add-to "${opp.market.question.substring(0, 40)}..." — ${Math.round((Date.now() - lastAdded) / 60000)}m ago`
+            );
+          } else {
+            const success = await executeTrade(opp, state, orderManager, riskManager, dbWalletId, "add_to_position");
+            if (success) {
+              executed++;
+              if (!(state as any)._lastAddedAt) (state as any)._lastAddedAt = {};
+              (state as any)._lastAddedAt[opp.market.id] = Date.now();
             }
           }
+        }
 
-          if (executed > 0) {
-            log.success(`Executed ${executed} trades this scan.`);
-          }
+        if (executed > 0) {
+          log.success(`Executed ${executed} trades this scan.`);
         }
       }
 
-      // Auto sell: take profit or stop loss
+      // Auto sell: take profit or stop loss (with on-chain verification)
       await checkAndSellPositions(state);
 
-      // Print portfolio summary (from persistent state)
+      // Print portfolio summary
       printStateSummary(state);
+
+      // Log risk stats
+      const riskStats = riskManager.getStats();
+      log.info(
+        `[Risk] Today: ${riskStats.dailyNewMarkets} new markets, $${riskStats.dailyCapitalDeployed.toFixed(2)} deployed, P&L: $${riskStats.dailyPnL.toFixed(2)}`
+      );
 
       // Record scan to database
       if (dbWalletId) {
-        const portfolioValue = Object.values(state.positions).reduce(
-          (sum, p) => sum + p.currentPrice * p.totalShares, 0
-        );
         await recordScan({
           walletId: dbWalletId,
           scanNumber: scanCount,
@@ -321,14 +347,12 @@ async function main(): Promise<void> {
         }).catch(() => {});
       }
 
-      // Save daily snapshot to database
+      // Save daily snapshot
       if (dbWalletId && balance >= 0) {
         await takeDailySnapshot(dbWalletId, {
           usdcBalance: balance,
-          portfolioValue: Object.values(state.positions).reduce(
-            (sum, p) => sum + p.currentPrice * p.totalShares, 0
-          ),
-          totalDeposited: 41.73, // actual deposits
+          portfolioValue,
+          totalDeposited: 121.98, // actual total deposits
           unrealizedPnl: Object.values(state.positions).reduce(
             (sum, p) => sum + p.unrealizedPnL, 0
           ),
@@ -340,7 +364,6 @@ async function main(): Promise<void> {
       log.error(`Scan failed: ${err}`);
     }
 
-    // Wait for next scan
     log.info(
       `Next scan in ${config.scanIntervalSeconds} seconds... (Ctrl+C to stop)\n`
     );
@@ -350,19 +373,23 @@ async function main(): Promise<void> {
   }
 }
 
-// Execute a single trade and record it in persistent state + database
+// Execute a single trade with full risk checking and recording
 async function executeTrade(
   opp: Opportunity,
   state: BotState,
   orderManager: OrderManager,
+  riskManager: RiskManager,
   dbWalletId: string | null,
   orderReason: string = "new_position"
 ): Promise<boolean> {
   const success = await orderManager.executeOpportunity(opp);
   if (!success) return false;
 
-  const shares = Math.floor(Math.min(config.maxTradeSize, 5) / opp.action.price);
+  const shares = Math.floor(Math.min(config.maxTradeSize, 15) / opp.action.price);
   const cost = shares * opp.action.price;
+
+  // Record in risk manager for daily tracking
+  riskManager.recordNewMarket(opp.market.id);
 
   // Record in persistent state
   recordTrade(state, {
@@ -407,10 +434,9 @@ async function executeTrade(
   return true;
 }
 
-// Graceful shutdown — save state before exiting
+// Graceful shutdown
 process.on("SIGINT", () => {
   log.warn("\nShutting down... saving state...");
-  // State is already saved after every trade, but save once more
   log.success("State saved to state.json. Your positions are safe.");
   process.exit(0);
 });

@@ -24,7 +24,8 @@ Every 30 seconds:
 
 1. **Load state.json** -- Reads previous trades, positions, and dedup list from disk.
 2. **Sync with on-chain** -- Calls Polymarket Data API (no auth needed) to get real positions. On-chain is the source of truth. If on-chain says 100 shares but state.json says 50, we trust on-chain.
-3. **Check USDC.e balance** -- Reads your wallet's USDC.e balance directly from the Polygon blockchain. No restart needed when you deposit more money.
+3. **Portfolio Optimizer** -- Scans all on-chain positions for contradictions, near-certain losers, and BTC conflicts. Auto-sells bad positions to free up capital. Uses live CoinGecko BTC price for smart decisions.
+4. **Check USDC.e balance** -- Reads your wallet's USDC.e balance directly from the Polygon blockchain. No restart needed when you deposit more money.
 
 ## How Orders Work
 
@@ -150,7 +151,13 @@ Minimum order: $1 (Polymarket enforces this).
 5. **Min edge filter** -- only trades when edge > your threshold.
 6. **Kill switch** -- emergency stop in RiskManager.
 7. **Max 3 trades per scan** -- prevents overtrading.
-8. **Balance check** -- skips trading if wallet balance < $1.
+8. **Low-cash mode** -- below $5 cash, stops new trades. Only manages existing positions.
+9. **Daily capital cap** -- max 60% of total assets deployed per day. Resets at midnight.
+10. **Max deployed %** -- keeps 25% cash reserve. Never deploys more than 75% of assets.
+11. **BTC correlation limit** -- max 2 BTC positions, max 30% of assets in BTC.
+12. **Max new markets/day** -- max 5 distinct new markets per day.
+13. **Auto-sell verification** -- verifies on-chain shares before selling. Retry with cooldown.
+14. **Portfolio optimizer** -- auto-sells contradictory and losing positions on startup.
 
 ## File Map
 
@@ -170,12 +177,13 @@ Minimum order: $1 (Polymarket enforces this).
 
 | File | What it does |
 |------|-------------|
-| `src/index.ts` | Main loop. Startup, scan, trade, auto-sell, repeat. |
-| `src/config.ts` | Reads `.env` file. All settings in one place. |
+| `src/index.ts` | Main loop v2. Startup, optimize, scan, trade, auto-sell, repeat. |
+| `src/config.ts` | All settings including capital management, BTC limits, auto-sell config. |
 | `src/client.ts` | Creates authenticated Polymarket CLOB client using viem wallet. |
 | `src/state.ts` | Persistent state management (load/save state.json, record trades, track positions). |
-| `src/sync.ts` | On-chain sync via Polymarket Data API. Source of truth for positions. |
+| `src/sync.ts` | On-chain sync + verified share lookup for auto-sell. Source of truth. |
 | `src/balance.ts` | Reads USDC.e balance from Polygon blockchain every scan. |
+| `src/portfolio-optimizer.ts` | **NEW** Auto-sells bad positions on startup. BTC contradiction detection. |
 
 ### src/strategies/
 
@@ -194,7 +202,7 @@ Minimum order: $1 (Polymarket enforces this).
 | File | What it does |
 |------|-------------|
 | `src/execution/order-manager.ts` | Turns opportunities into orders. Kelly sizing, risk checks, paper/live execution. |
-| `src/execution/auto-sell.ts` | Take profit / stop loss. Sells positions that hit thresholds. |
+| `src/execution/auto-sell.ts` | **v2** Take profit/stop loss with on-chain verification, retry tracking, cooldown. |
 | `src/execution/position.ts` | In-memory position tracker (used alongside state.json). |
 
 ### src/markets/
@@ -209,7 +217,7 @@ Minimum order: $1 (Polymarket enforces this).
 | File | What it does |
 |------|-------------|
 | `src/risk/kelly.ts` | Kelly Criterion -- calculates how much to bet based on edge. |
-| `src/risk/risk-manager.ts` | Safety checks: daily loss limit, max trade size, kill switch. |
+| `src/risk/risk-manager.ts` | **v2** Daily caps, BTC limits, low-cash mode, deployed %, max markets/day. |
 
 ### src/utils/
 

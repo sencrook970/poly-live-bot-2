@@ -84,6 +84,29 @@ export async function fetchOnChainTrades(
   return [];
 }
 
+// --- Cached position lookup for auto-sell verification ---
+// Avoids hammering the API — caches for 30 seconds
+let _posCache: OnChainPosition[] = [];
+let _posCacheTime = 0;
+const POS_CACHE_TTL = 30_000;
+
+export async function getVerifiedShares(
+  walletAddress: string,
+  tokenId: string
+): Promise<number> {
+  if (Date.now() - _posCacheTime > POS_CACHE_TTL) {
+    _posCache = await fetchOnChainPositions(walletAddress);
+    _posCacheTime = Date.now();
+  }
+  const pos = _posCache.find((p) => p.asset === tokenId);
+  return pos ? pos.size : 0;
+}
+
+// Invalidate cache (call after a sell to force re-fetch)
+export function invalidatePositionCache(): void {
+  _posCacheTime = 0;
+}
+
 // Sync on-chain positions with local state
 // Priority: on-chain is the source of truth
 export async function syncState(
