@@ -1,5 +1,5 @@
 {
-  "lastSaved": 1773684530044,
+  "lastSaved": 1773684619333,
   "trades": [
     {
       "id": "trade_1773520506568",
@@ -1937,7 +1937,7 @@
       "avgPrice": 0.442857,
       "totalCost": 9.299997,
       "currentPrice": 0.335,
-      "unrealizedPnL": -2.2649969999999997,
+      "unrealizedPnL": -2.264997,
       "firstBoughtAt": 1773554526434
     },
     "60396150294056475674860934419619480139938118116601719506967369709790058295210": {
@@ -1948,8 +1948,8 @@
       "totalShares": 64,
       "avgPrice": 0.158,
       "totalCost": 10.112,
-      "currentPrice": 0.1745,
-      "unrealizedPnL": 1.056,
+      "currentPrice": 0.1715,
+      "unrealizedPnL": 0.864,
       "firstBoughtAt": 1773590376025
     },
     "51938013536033607392847872760095315790110510345353215258271180769721415981927": {
@@ -1961,7 +1961,7 @@
       "avgPrice": 0.86,
       "totalCost": 12.04,
       "currentPrice": 0.885,
-      "unrealizedPnL": 0.3500000000000003,
+      "unrealizedPnL": 0.35,
       "firstBoughtAt": 1773590378283
     },
     "4535122699075910617296689739209052182591729434840370870460954445200030058884": {
@@ -1984,8 +1984,8 @@
       "totalShares": 5,
       "avgPrice": 0.877,
       "totalCost": 4.385,
-      "currentPrice": 0.7855,
-      "unrealizedPnL": -0.45750000000000013,
+      "currentPrice": 0.7735,
+      "unrealizedPnL": -0.5175,
       "firstBoughtAt": 1773590484066
     },
     "68339523648891823346525943170923809752656111307494446683897840426837639357923": {
@@ -1996,8 +1996,8 @@
       "totalShares": 5,
       "avgPrice": 0.604,
       "totalCost": 3.02,
-      "currentPrice": 0.5065,
-      "unrealizedPnL": -0.4875000000000005,
+      "currentPrice": 0.5045,
+      "unrealizedPnL": -0.49750000000000044,
       "firstBoughtAt": 1773646780814
     },
     "62174615336627888814453166657652087168672936561990669762061326057126859157348": {
@@ -2008,8 +2008,8 @@
       "totalShares": 10,
       "avgPrice": 0.83,
       "totalCost": 8.3,
-      "currentPrice": 0.81,
-      "unrealizedPnL": -0.19999999999999907,
+      "currentPrice": 0.815,
+      "unrealizedPnL": -0.15000000000000094,
       "firstBoughtAt": 1773654859005
     },
     "33706688152544336499821558582006595413982659114846957628399804081912334837275": {
@@ -2021,8 +2021,20 @@
       "avgPrice": 0.15,
       "totalCost": 6.45,
       "currentPrice": 0.155,
-      "unrealizedPnL": 0.2150000000000002,
+      "unrealizedPnL": 0.215,
       "firstBoughtAt": 1773674582172
+    },
+    "3017575294328480172186284777989705268946967211101133808073051831220040958727": {
+      "marketId": "0xbfa6edc561ac39df0d96bca422abe1a8ddeceed7261adc1fe5d22e225c3f8cd6",
+      "marketQuestion": "BNP Paribas Open: Aryna Sabalenka vs Elena Rybakina",
+      "tokenId": "3017575294328480172186284777989705268946967211101133808073051831220040958727",
+      "outcome": "Aryna Sabalenka",
+      "totalShares": 10,
+      "avgPrice": 0.455,
+      "totalCost": 4.55,
+      "currentPrice": 1,
+      "unrealizedPnL": 5.45,
+      "firstBoughtAt": 1773684619332
     }
   },
   "tradedMarketIds": [
