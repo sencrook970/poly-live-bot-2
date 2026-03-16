@@ -352,7 +352,7 @@ async function main(): Promise<void> {
         await takeDailySnapshot(dbWalletId, {
           usdcBalance: balance,
           portfolioValue,
-          totalDeposited: 121.98, // actual total deposits
+          totalDeposited: 171.98, // actual total deposits ($121.98 + $50)
           unrealizedPnl: Object.values(state.positions).reduce(
             (sum, p) => sum + p.unrealizedPnL, 0
           ),
