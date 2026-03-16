@@ -28,9 +28,10 @@ Last updated: 2026-03-16
 ### Fix: 6 major improvements
 
 1. **Portfolio Optimizer** (`portfolio-optimizer.ts`) — NEW
-   - Runs on startup, auto-sells contradictory/losing positions
+   - Cancels all open/pending orders on startup (frees locked USDC.e)
+   - Cleans resolved markets from state (doesn't try to sell via dead orderbook)
+   - Auto-sells contradictory/losing positions
    - Detects BTC contradictions using live CoinGecko price
-   - Sells positions with near-zero price (certain losers)
    - Frees up capital trapped in bad positions
 
 2. **Daily Capital Cap** — NEW

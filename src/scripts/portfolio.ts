@@ -13,7 +13,7 @@ dotenv.config();
 
 const WALLET = "0xBBF2DFc8ACC5021292dD039abC80E8429C9A3B5F";
 const USDC_E = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
-const TOTAL_DEPOSITED = 82; // ~$22 + $20 + $20 + $20
+const TOTAL_DEPOSITED = 121.98; // ~$22 + $20 + $20 + $20
 
 async function main() {
   // 1. Get USDC.e balance

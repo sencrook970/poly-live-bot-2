@@ -65,6 +65,107 @@ function parseBtcLevel(
   return { level, yesIsAbove };
 }
 
+// Sync the CLOB server's internal balance with on-chain.
+// The CLOB has its own balance ledger. When positions resolve and USDC.e
+// returns to your wallet, or when you deposit, the CLOB doesn't know.
+// This function tells the CLOB to re-check on-chain.
+async function syncClobBalance(): Promise<void> {
+  if (config.paperTrade) return;
+
+  try {
+    const client = await getClient();
+    log.info("[Optimizer] Syncing CLOB balance with on-chain...");
+
+    // The SDK's updateBalanceAllowance sends a GET to /balance-allowance/update
+    // Some SDK versions need different params. Try multiple approaches.
+    let synced = false;
+
+    // Approach 1: SDK method (works on some versions)
+    try {
+      await client.updateBalanceAllowance({ asset_type: 0 as any });
+      await client.updateBalanceAllowance({ asset_type: 1 as any });
+      synced = true;
+      log.success("[Optimizer] CLOB balance synced.");
+    } catch (e1: any) {
+      log.info(`[Optimizer] SDK balance sync failed: ${e1?.message?.substring(0, 60) || e1}`);
+    }
+
+    // Approach 2: If SDK failed, try setting allowances on-chain
+    // which forces the exchange contracts to re-check your balance
+    if (!synced) {
+      try {
+        const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
+        const { polygon } = await import("viem/chains");
+        const { privateKeyToAccount } = await import("viem/accounts");
+
+        const pk = config.privateKey.startsWith("0x") ? config.privateKey : `0x${config.privateKey}`;
+        const account = privateKeyToAccount(pk as `0x${string}`);
+        const walletClient = createWalletClient({
+          account,
+          chain: polygon,
+          transport: http("https://polygon-bor-rpc.publicnode.com"),
+        });
+        const publicClient = createPublicClient({
+          chain: polygon,
+          transport: http("https://polygon-bor-rpc.publicnode.com"),
+        });
+
+        const ERC20_ABI = parseAbi([
+          "function approve(address spender, uint256 amount) returns (bool)",
+        ]);
+        const MAX = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+        const USDC_E = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
+        const EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E" as `0x${string}`;
+        const NEG_RISK = "0xC5d563A36AE78145C45a50134d48A1215220f80a" as `0x${string}`;
+
+        log.info("[Optimizer] Re-approving USDC.e for exchanges (forces balance sync)...");
+        const h1 = await walletClient.writeContract({
+          address: USDC_E, abi: ERC20_ABI, functionName: "approve",
+          args: [EXCHANGE, MAX],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: h1 });
+
+        const h2 = await walletClient.writeContract({
+          address: USDC_E, abi: ERC20_ABI, functionName: "approve",
+          args: [NEG_RISK, MAX],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: h2 });
+
+        log.success("[Optimizer] USDC.e re-approved — CLOB should recognize balance now.");
+        synced = true;
+      } catch (e2: any) {
+        log.warn(`[Optimizer] On-chain approve failed: ${e2?.message?.substring(0, 80)}`);
+      }
+    }
+
+    if (!synced) {
+      log.warn("[Optimizer] Could not sync CLOB balance. Run manually: npx tsx src/scripts/set-allowance.ts");
+    }
+  } catch (err) {
+    log.warn(`[Optimizer] Balance sync error: ${err}`);
+  }
+}
+
+// Cancel all open/pending orders to free up locked USDC.e
+// This is critical on startup because old unfilled orders consume balance
+export async function cancelAllOpenOrders(): Promise<void> {
+  if (config.paperTrade) return;
+
+  try {
+    const client = await getClient();
+    log.info("[Optimizer] Cancelling all open orders to free locked USDC.e...");
+    await client.cancelAll();
+    log.success("[Optimizer] All open orders cancelled.");
+  } catch (err) {
+    log.warn(`[Optimizer] Could not cancel orders: ${err}`);
+  }
+
+  // Sync the CLOB server's internal balance with on-chain reality.
+  // Without this, the CLOB rejects orders with "not enough balance / allowance"
+  // because it doesn't know about USDC.e from resolved positions or new deposits.
+  await syncClobBalance();
+}
+
 export async function optimizePortfolio(
   state: BotState,
   walletAddress: string
@@ -76,6 +177,9 @@ export async function optimizePortfolio(
 
   log.info("[Optimizer] ══════════════════════════════════════");
   log.info("[Optimizer] Running portfolio cleanup...");
+
+  // First: cancel all open orders so USDC.e is not locked
+  await cancelAllOpenOrders();
 
   // Re-sync from on-chain first (source of truth)
   const onChainPositions = await fetchOnChainPositions(walletAddress);
@@ -90,10 +194,30 @@ export async function optimizePortfolio(
     log.info(`[Optimizer] Current BTC: $${btcPrice.toLocaleString()}`);
   }
 
+  // Step 1: Clean resolved markets (price 0 or 1) — just remove from state, don't try to sell
+  // Resolved markets have their orderbook deleted, so CLOB sells will fail with "orderbook does not exist"
+  let cleaned = 0;
+  for (const pos of onChainPositions) {
+    if (pos.size <= 0) continue;
+    if (pos.curPrice <= 0.005 || pos.curPrice >= 0.995) {
+      log.info(
+        `[Optimizer] RESOLVED: "${pos.title.substring(0, 50)}..." — price $${pos.curPrice.toFixed(3)}, removing from state`
+      );
+      delete state.positions[pos.asset];
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    saveState(state);
+    log.info(`[Optimizer] Cleaned ${cleaned} resolved markets from state.`);
+  }
+
   const analyses: PositionAnalysis[] = [];
 
   for (const pos of onChainPositions) {
     if (pos.size <= 0) continue;
+    // Skip already-resolved markets (handled above)
+    if (pos.curPrice <= 0.005 || pos.curPrice >= 0.995) continue;
 
     const analysis: PositionAnalysis = {
       tokenId: pos.asset,
@@ -107,7 +231,7 @@ export async function optimizePortfolio(
       reason: "Position looks OK",
     };
 
-    // Check 1: Near-certain loser (price at near 0)
+    // Check 1: Near-certain loser (very low price but not fully resolved)
     if (pos.curPrice <= 0.03 && pos.size > 0) {
       analysis.action = "sell";
       analysis.reason = `Price $${pos.curPrice.toFixed(3)} near zero — almost certain loss`;
